@@ -102,6 +102,28 @@ async def test_cloud_reuses_stopped_or_paused_sandbox(sdk, state, action):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["local", "cloud"])
+async def test_get_or_create_reuses_a_stopped_labeled_sandbox(sdk, target):
+    sdk.summary.state = "stopped"
+    sdk.machine.state.return_value = "stopped"
+    if target == "cloud":
+        sdk.machine.start.side_effect = lambda: setattr(sdk.summary, "state", "started")
+    else:
+        sdk.connect.side_effect = lambda *args: (
+            setattr(sdk.summary, "state", "running") or sdk.machine
+        )
+    provider = SmolProvider(target=target)
+    sandbox = await provider.get_or_create_sandbox(SandboxConfig(labels={"project": "test"}))
+    assert sandbox.id == "smol-123"
+    assert sandbox.state == SandboxState.RUNNING
+    sdk.create.assert_not_called()
+    if target == "cloud":
+        sdk.machine.start.assert_called_once_with()
+    else:
+        sdk.machine.start.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_failed_setup_deletes_created_machine(sdk):
     sdk.machine.exec.return_value = SimpleNamespace(
         exit_code=1, stdout="", stderr="failed", stdout_truncated=False, stderr_truncated=False

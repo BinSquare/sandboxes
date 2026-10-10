@@ -140,6 +140,18 @@ class SmolProvider(SandboxProvider):
         machines = await self.list_sandboxes()
         return next((machine for machine in machines if machine.id == sandbox_id), None)
 
+    async def find_sandbox(self, labels: dict[str, str]) -> Sandbox | None:
+        """Reuse a matching stopped sandbox instead of losing its persisted work."""
+        sandboxes = await self.list_sandboxes(labels=labels)
+        for sandbox in sandboxes:
+            if sandbox.state == SandboxState.RUNNING:
+                return sandbox
+        for sandbox in sandboxes:
+            if sandbox.state == SandboxState.STOPPED:
+                await self._owned_machine(sandbox.id)
+                return await self.get_sandbox(sandbox.id)
+        return None
+
     async def _owned_machine(self, sandbox_id: str) -> Machine:
         sandbox = await self.get_sandbox(sandbox_id)
         if sandbox is None:
