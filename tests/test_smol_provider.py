@@ -168,6 +168,38 @@ async def test_file_transfer_uses_guest_api_and_validates_local_paths(sdk, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_cloud_transfer_rejects_unsafe_paths_before_connecting(sdk, tmp_path):
+    provider = SmolProvider(target="cloud")
+    source = tmp_path / "source.txt"
+    source.write_bytes(b"host data")
+    destination = tmp_path / "destination.txt"
+    for suffix in ("#draft", "?v=2", "%20draft", "\nname", "\x00name"):
+        path = f"/workspace/report{suffix}.txt"
+        with pytest.raises(SandboxError, match="Smol Cloud file path"):
+            await provider.upload_file("smol-123", str(source), path)
+        with pytest.raises(SandboxError, match="Smol Cloud file path"):
+            await provider.download_file("smol-123", path, str(destination))
+    sdk.list.assert_not_called()
+    sdk.connect.assert_not_called()
+    sdk.machine.write_file.assert_not_called()
+    sdk.machine.read_file.assert_not_called()
+    assert not destination.exists()
+
+
+@pytest.mark.asyncio
+async def test_local_transfer_keeps_url_delimiters(sdk, tmp_path):
+    provider = SmolProvider()
+    source = tmp_path / "source.txt"
+    source.write_bytes(b"local filename")
+    destination = tmp_path / "destination.txt"
+    path = "/workspace/report#draft%20.txt"
+    assert await provider.upload_file("smol-123", str(source), path)
+    assert await provider.download_file("smol-123", path, str(destination))
+    sdk.machine.write_file.assert_called_once_with(path, b"local filename")
+    sdk.machine.read_file.assert_called_once_with(path)
+
+
+@pytest.mark.asyncio
 async def test_rejects_contradictory_network_policy_before_provisioning(sdk):
     provider = SmolProvider()
     with pytest.raises(ProviderError, match="allow lists require network"):

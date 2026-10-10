@@ -198,8 +198,19 @@ class SmolProvider(SandboxProvider):
                 raise
         return True
 
+    def _validate_cloud_file_path(self, path: str) -> None:
+        # Cloud's file route can reinterpret URL delimiters and control bytes.
+        if self.target == "cloud" and (
+            any(char in path for char in "?#%")
+            or any(ord(char) < 32 or ord(char) == 127 for char in path)
+        ):
+            raise SandboxError(
+                f"Smol Cloud file path cannot contain ?, #, %, or control characters: {path!r}"
+            )
+
     async def upload_file(self, sandbox_id: str, local_path: str, sandbox_path: str) -> bool:
         source = validate_upload_path(local_path)
+        self._validate_cloud_file_path(sandbox_path)
         machine = await self._owned_machine(sandbox_id)
         data = await asyncio.to_thread(source.read_bytes)
         await asyncio.to_thread(machine.write_file, sandbox_path, data)
@@ -207,6 +218,7 @@ class SmolProvider(SandboxProvider):
 
     async def download_file(self, sandbox_id: str, sandbox_path: str, local_path: str) -> bool:
         destination = validate_download_path(local_path)
+        self._validate_cloud_file_path(sandbox_path)
         machine = await self._owned_machine(sandbox_id)
         data = await asyncio.to_thread(machine.read_file, sandbox_path)
         await asyncio.to_thread(Path(destination).write_bytes, data)
