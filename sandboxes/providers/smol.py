@@ -141,9 +141,19 @@ class SmolProvider(SandboxProvider):
         return next((machine for machine in machines if machine.id == sandbox_id), None)
 
     async def _owned_machine(self, sandbox_id: str) -> Machine:
-        if await self.get_sandbox(sandbox_id) is None:
+        sandbox = await self.get_sandbox(sandbox_id)
+        if sandbox is None:
             raise SandboxNotFoundError(f"Smol sandbox {sandbox_id} not found")
-        return await asyncio.to_thread(Machine.connect, sandbox_id, self._connection)
+        machine = await asyncio.to_thread(Machine.connect, sandbox_id, self._connection)
+        # Local connect starts a stopped machine; Cloud connect only attaches.
+        # Reuse a stopped sandbox without discarding a paused machine's RAM.
+        if self.target == "cloud" and sandbox.state == SandboxState.STOPPED:
+            state = await asyncio.to_thread(machine.state)
+            if state == "paused":
+                await asyncio.to_thread(machine.resume)
+            elif state == "stopped":
+                await asyncio.to_thread(machine.start)
+        return machine
 
     async def execute_command(
         self,

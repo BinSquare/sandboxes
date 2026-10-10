@@ -88,6 +88,20 @@ async def test_cloud_is_explicit_and_ttl_is_bounded(sdk):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("state,action", [("stopped", "start"), ("paused", "resume")])
+async def test_cloud_reuses_stopped_or_paused_sandbox(sdk, state, action):
+    sdk.summary.state = state
+    sdk.machine.state.return_value = state
+    provider = SmolProvider(target="cloud")
+    result = await provider.execute_command("smol-123", "printf hello")
+    assert result.success
+    getattr(sdk.machine, action).assert_called_once_with()
+    (sdk.machine.resume if action == "start" else sdk.machine.start).assert_not_called()
+    await provider.upload_file("smol-123", __file__, "/workspace/test.py")
+    assert getattr(sdk.machine, action).call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_failed_setup_deletes_created_machine(sdk):
     sdk.machine.exec.return_value = SimpleNamespace(
         exit_code=1, stdout="", stderr="failed", stdout_truncated=False, stderr_truncated=False
